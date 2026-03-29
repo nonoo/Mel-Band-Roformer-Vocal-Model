@@ -26,7 +26,7 @@ def get_windowing_array(window_size, fade_size, device):
     window[:fade_size] *= fadein
     return window.to(device)
 
-def demix_track(config, model, mix, device, first_chunk_time=None):
+def demix_track(config, model, mix, device, first_chunk_time=None, show_progress=True, stream_callback=None):
     C = config.inference.chunk_size
     N = config.inference.num_overlap
     step = C // N
@@ -52,6 +52,9 @@ def demix_track(config, model, mix, device, first_chunk_time=None):
             i = 0
             total_length = mix.shape[1]
             num_chunks = (total_length + step - 1) // step
+            valid_start = border if border > 0 else 0
+            valid_end = total_length - border if border > 0 else total_length
+            emitted_until = valid_start
 
             if first_chunk_time is None:
                 start_time = time.time()
@@ -88,16 +91,33 @@ def demix_track(config, model, mix, device, first_chunk_time=None):
                     chunk_time = time.time() - chunk_start_time
                     first_chunk_time = chunk_time
                     estimated_total_time = chunk_time * num_chunks
-                    print(f"Estimated total processing time for this track: {estimated_total_time:.2f} seconds")
+                    if show_progress:
+                        print(f"Estimated total processing time for this track: {estimated_total_time:.2f} seconds", file=sys.stderr)
                     first_chunk = False
 
-                if first_chunk_time is not None and i > step:
+                if show_progress and first_chunk_time is not None and i > step:
                     chunks_processed = i // step
                     time_remaining = first_chunk_time * (num_chunks - chunks_processed)
-                    sys.stdout.write(f"\rEstimated time remaining: {time_remaining:.2f} seconds")
-                    sys.stdout.flush()
+                    sys.stderr.write(f"\rEstimated time remaining: {time_remaining:.2f} seconds")
+                    sys.stderr.flush()
 
-            print()
+                if stream_callback is not None:
+                    emit_end = min(i, valid_end)
+                    if emit_end > emitted_until:
+                        estimated_chunk = result[..., emitted_until:emit_end] / counter[..., emitted_until:emit_end]
+                        estimated_chunk = estimated_chunk.cpu().numpy()
+                        np.nan_to_num(estimated_chunk, copy=False, nan=0.0)
+                        output_start = emitted_until - valid_start
+                        output_end = emit_end - valid_start
+                        if config.training.target_instrument is None:
+                            chunk_dict = {k: v for k, v in zip(config.training.instruments, estimated_chunk)}
+                        else:
+                            chunk_dict = {k: v for k, v in zip([config.training.target_instrument], estimated_chunk)}
+                        stream_callback(chunk_dict, output_start, output_end)
+                        emitted_until = emit_end
+
+            if show_progress:
+                print()
             estimated_sources = result / counter
             estimated_sources = estimated_sources.cpu().numpy()
             np.nan_to_num(estimated_sources, copy=False, nan=0.0)
