@@ -87,11 +87,33 @@ def write_flac_to_stdout(audio, sample_rate):
             os.unlink(tmp_path)
 
 
+def write_mp3_to_stdout(audio, sample_rate):
+    import soundfile as sf
+    if audio.ndim == 1:
+        audio = audio[:, np.newaxis]
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        sf.write(tmp_path, audio, sample_rate, bitrate_mode='CONSTANT', compression_level=0.0)
+        with open(tmp_path, 'rb') as f:
+            data = f.read()
+        fd = sys.stdout.fileno()
+        offset = 0
+        while offset < len(data):
+            written = os.write(fd, data[offset:])
+            if written <= 0:
+                raise RuntimeError('Failed to write MP3 stream output to stdout')
+            offset += written
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
 def run_inference(model, args, config, device, demix_track, verbose=False):
     import torch
     import soundfile as sf
     from tqdm import tqdm
     start_time = time.time()
+
     model.eval()
     all_mixtures_path = collect_input_files(args)
     total_tracks = len(all_mixtures_path)
@@ -138,7 +160,7 @@ def run_inference(model, args, config, device, demix_track, verbose=False):
             sys.stderr.flush()
 
         stream_callback = None
-        if streaming and not args.flac:
+        if streaming and not args.flac and not args.mp3:
             stream_state = {'cursor': 0}
             instr_key = instruments[0]
 
@@ -181,6 +203,11 @@ def run_inference(model, args, config, device, demix_track, verbose=False):
                     write_flac_to_stdout(vocals_output, sr)
                 else:
                     write_flac_to_stdout(instrumental, sr)
+            elif args.mp3:
+                if args.stream_f32le_vocal:
+                    write_mp3_to_stdout(vocals_output, sr)
+                else:
+                    write_mp3_to_stdout(instrumental, sr)
             continue
 
         if args.stream_f32le_vocal:
@@ -191,23 +218,32 @@ def run_inference(model, args, config, device, demix_track, verbose=False):
             write_f32le_to_stdout(instrumental)
             continue
 
+        if args.mp3:
+            ext = "mp3"
+        elif args.flac:
+            ext = "flac"
+        else:
+            ext = "wav"
+
         for instr in instruments:
             current_vocals = res[instr].T
             if original_mono:
                 current_vocals = current_vocals[:, 0]
 
             file_stem = Path(path).stem
-            ext = "flac" if args.flac else "wav"
             vocals_path = f"{args.store_dir}/{file_stem}_{instr}.{ext}"
-            if args.flac:
+            if args.mp3:
+                sf.write(vocals_path, current_vocals, sr, bitrate_mode='CONSTANT', compression_level=0.0)
+            elif args.flac:
                 sf.write(vocals_path, current_vocals, sr, format='FLAC', subtype='PCM_16')
             else:
                 sf.write(vocals_path, current_vocals, sr, subtype='FLOAT')
 
         file_stem = Path(path).stem
-        ext = "flac" if args.flac else "wav"
         instrumental_path = f"{args.store_dir}/{file_stem}_instrumental.{ext}"
-        if args.flac:
+        if args.mp3:
+            sf.write(instrumental_path, instrumental, sr, bitrate_mode='CONSTANT', compression_level=0.0)
+        elif args.flac:
             sf.write(instrumental_path, instrumental, sr, format='FLAC', subtype='PCM_16')
         else:
             sf.write(instrumental_path, instrumental, sr, subtype='FLOAT')
@@ -224,7 +260,9 @@ def build_parser():
     parser.add_argument("--input", type=str, help="single audio file to process")
     parser.add_argument("--input_folder", type=str, help="folder with songs to process")
     parser.add_argument("--store_dir", default="", type=str, help="path to store model outputs")
-    parser.add_argument("--flac", action='store_true', help="write/store outputs as FLAC instead of WAV")
+    format_group = parser.add_mutually_exclusive_group()
+    format_group.add_argument("--flac", action='store_true', help="write/store outputs as FLAC instead of WAV")
+    format_group.add_argument("--mp3", action='store_true', help="write/store outputs as MP3 instead of WAV")
     parser.add_argument("--device_ids", nargs='+', type=int, default=0, help='list of gpu ids')
     stream_group = parser.add_mutually_exclusive_group()
     stream_group.add_argument("--stream-f32le-instrumental", action='store_true', help='write instrumental to stdout as f32le')
