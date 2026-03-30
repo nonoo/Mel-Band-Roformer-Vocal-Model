@@ -72,7 +72,7 @@ def write_flac_to_stdout(audio, sample_rate):
     with tempfile.NamedTemporaryFile(suffix=".flac", delete=False) as tmp:
         tmp_path = tmp.name
     try:
-        sf.write(tmp_path, audio, sample_rate, format='FLAC', subtype='PCM_16')
+        sf.write(tmp_path, audio, sample_rate, format='FLAC', subtype='PCM_24')
         with open(tmp_path, 'rb') as f:
             data = f.read()
         fd = sys.stdout.fileno()
@@ -235,7 +235,7 @@ def run_inference(model, args, config, device, demix_track, verbose=False):
             if args.mp3:
                 sf.write(vocals_path, current_vocals, sr, bitrate_mode='CONSTANT', compression_level=0.0)
             elif args.flac:
-                sf.write(vocals_path, current_vocals, sr, format='FLAC', subtype='PCM_16')
+                sf.write(vocals_path, current_vocals, sr, format='FLAC', subtype='PCM_24')
             else:
                 sf.write(vocals_path, current_vocals, sr, subtype='FLOAT')
 
@@ -244,7 +244,7 @@ def run_inference(model, args, config, device, demix_track, verbose=False):
         if args.mp3:
             sf.write(instrumental_path, instrumental, sr, bitrate_mode='CONSTANT', compression_level=0.0)
         elif args.flac:
-            sf.write(instrumental_path, instrumental, sr, format='FLAC', subtype='PCM_16')
+            sf.write(instrumental_path, instrumental, sr, format='FLAC', subtype='PCM_24')
         else:
             sf.write(instrumental_path, instrumental, sr, subtype='FLOAT')
 
