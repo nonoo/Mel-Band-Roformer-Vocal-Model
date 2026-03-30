@@ -6,7 +6,7 @@ Download the model - https://huggingface.co/KimberleyJSN/melbandroformer/blob/ma
 
 Install requirements - `pip install -r requirements.txt`
 
-Inference (folder mode) - `python inference.py --input_folder songsfolder --store_dir outputsfolder`\n\nDefaults:\n- `--config_path` defaults to `configs/config_vocals_mel_band_roformer.yaml`\n- `--model_path` defaults to `MelBandRoformer.ckpt`\n\nInput formats supported in folder mode: `.wav`, `.flac`, `.mp3`, `.ogg`, `.m4a`, `.aac`.\n\nYou can also process a single file with `--input /path/to/song.mp3`.\n\nStreaming mode (writes raw float32 little-endian PCM to stdout, no output files):\n- Instrumental: `python inference.py --input song.mp3 --stream-f32le-instrumental > instrumental.f32le`\n- Vocal: `python inference.py --input song.mp3 --stream-f32le-vocal > vocal.f32le`\n\nWhen no stream flags are used, the model writes vocals and instrumental files to `--store_dir`.
+Inference (folder mode) - `python inference.py --input_folder songsfolder --store_dir outputsfolder`\n\nDefaults:\n- `--config_path` defaults to `configs/config_vocals_mel_band_roformer.yaml`\n- `--model_path` defaults to `MelBandRoformer.ckpt`\n\nInput formats supported in folder mode: `.wav`, `.flac`, `.mp3`, `.ogg`, `.m4a`, `.aac`.\n\nYou can also process a single file with `--input /path/to/song.mp3`.\n\nOutput format:\n- default: WAV\n- use `--flac` to write/store outputs as FLAC\n\nStreaming mode:\n- default stream flags write raw float32 little-endian PCM to stdout:\n  - Instrumental: `python inference.py --input song.mp3 --stream-f32le-instrumental > instrumental.f32le`\n  - Vocal: `python inference.py --input song.mp3 --stream-f32le-vocal > vocal.f32le`\n- with `--flac`, streaming output is written to stdout as FLAC bytes instead.\n\nWhen no stream flags are used, the model writes vocals and instrumental files to `--store_dir`.
 
 [num_overlap](https://github.com/KimberleyJensen/Mel-Band-Roformer-Vocal-Model/blob/41d04ae1c8ea89261b488e90953192efe650fa4f/configs/config_vocals_mel_band_roformer.yaml#L38) - Increasing this value can improve the quality of the outputs due to helping with artifacts created when putting the chunks back together. This will make inference times longer (you don't need to go higher than 8)
 
@@ -29,7 +29,6 @@ If you would like to contribute GPU access for me to train better models please 
 # Google colab
 
 https://colab.research.google.com/drive/1tyP3ZgcD443d4Q3ly7LcS3toJroLO5o1?usp=sharing
-
 
 
 

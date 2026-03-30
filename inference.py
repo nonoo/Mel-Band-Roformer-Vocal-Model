@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 import sys
 import os
+import tempfile
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -64,6 +65,28 @@ def write_f32le_to_stdout(audio):
         offset += written
 
 
+def write_flac_to_stdout(audio, sample_rate):
+    import soundfile as sf
+    if audio.ndim == 1:
+        audio = audio[:, np.newaxis]
+    with tempfile.NamedTemporaryFile(suffix=".flac", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        sf.write(tmp_path, audio, sample_rate, format='FLAC', subtype='PCM_16')
+        with open(tmp_path, 'rb') as f:
+            data = f.read()
+        fd = sys.stdout.fileno()
+        offset = 0
+        while offset < len(data):
+            written = os.write(fd, data[offset:])
+            if written <= 0:
+                raise RuntimeError('Failed to write FLAC stream output to stdout')
+            offset += written
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
 def run_inference(model, args, config, device, demix_track, verbose=False):
     import torch
     import soundfile as sf
@@ -115,7 +138,7 @@ def run_inference(model, args, config, device, demix_track, verbose=False):
             sys.stderr.flush()
 
         stream_callback = None
-        if streaming:
+        if streaming and not args.flac:
             stream_state = {'cursor': 0}
             instr_key = instruments[0]
 
@@ -145,15 +168,20 @@ def run_inference(model, args, config, device, demix_track, verbose=False):
             stream_callback=stream_callback
         )
 
-        if streaming:
-            continue
-
         vocals_output = res[instruments[0]].T
         if original_mono:
             vocals_output = vocals_output[:, 0]
 
         original_mix = mix[:, 0] if original_mono else mix
         instrumental = original_mix - vocals_output
+
+        if streaming:
+            if args.flac:
+                if args.stream_f32le_vocal:
+                    write_flac_to_stdout(vocals_output, sr)
+                else:
+                    write_flac_to_stdout(instrumental, sr)
+            continue
 
         if args.stream_f32le_vocal:
             write_f32le_to_stdout(vocals_output)
@@ -169,12 +197,20 @@ def run_inference(model, args, config, device, demix_track, verbose=False):
                 current_vocals = current_vocals[:, 0]
 
             file_stem = Path(path).stem
-            vocals_path = f"{args.store_dir}/{file_stem}_{instr}.wav"
-            sf.write(vocals_path, current_vocals, sr, subtype='FLOAT')
+            ext = "flac" if args.flac else "wav"
+            vocals_path = f"{args.store_dir}/{file_stem}_{instr}.{ext}"
+            if args.flac:
+                sf.write(vocals_path, current_vocals, sr, format='FLAC', subtype='PCM_16')
+            else:
+                sf.write(vocals_path, current_vocals, sr, subtype='FLOAT')
 
         file_stem = Path(path).stem
-        instrumental_path = f"{args.store_dir}/{file_stem}_instrumental.wav"
-        sf.write(instrumental_path, instrumental, sr, subtype='FLOAT')
+        ext = "flac" if args.flac else "wav"
+        instrumental_path = f"{args.store_dir}/{file_stem}_instrumental.{ext}"
+        if args.flac:
+            sf.write(instrumental_path, instrumental, sr, format='FLAC', subtype='PCM_16')
+        else:
+            sf.write(instrumental_path, instrumental, sr, subtype='FLOAT')
 
     time.sleep(1)
     print("Elapsed time: {:.2f} sec".format(time.time() - start_time), file=sys.stderr)
@@ -188,6 +224,7 @@ def build_parser():
     parser.add_argument("--input", type=str, help="single audio file to process")
     parser.add_argument("--input_folder", type=str, help="folder with songs to process")
     parser.add_argument("--store_dir", default="", type=str, help="path to store model outputs")
+    parser.add_argument("--flac", action='store_true', help="write/store outputs as FLAC instead of WAV")
     parser.add_argument("--device_ids", nargs='+', type=int, default=0, help='list of gpu ids')
     stream_group = parser.add_mutually_exclusive_group()
     stream_group.add_argument("--stream-f32le-instrumental", action='store_true', help='write instrumental to stdout as f32le')
